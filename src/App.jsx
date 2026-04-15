@@ -1,18 +1,47 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { ref, onValue } from "firebase/database";
+import { ref, onValue, set } from "firebase/database";
 import { database } from "./firebase";
 import { getAIPrecautions } from "./geminiService";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import "./App.css";
 
 const AI_COOLDOWN_SECS = 60; // minimum seconds between AI calls
 
 // ── Pure helpers ──────────────────────────────────────────────
+// Standard AQI Breakpoints (Linear Interpolation Method)
+const getInterpolatedAQI = (value, breakpoints) => {
+  const roundedValue = Math.round(value);
+  const table = breakpoints.find(b => roundedValue >= b.cLo && roundedValue <= b.cHi);
+  if (!table) return roundedValue > breakpoints[breakpoints.length - 1].cHi ? 500 : 0;
+  
+  const { cLo, cHi, iLo, iHi } = table;
+  return Math.round(((iHi - iLo) / (cHi - cLo)) * (roundedValue - cLo) + iLo);
+};
+
+const DUST_BREAKPOINTS = [
+  { cLo: 0,   cHi: 30,  iLo: 0,   iHi: 50 },
+  { cLo: 31,  cHi: 60,  iLo: 51,  iHi: 100 },
+  { cLo: 61,  cHi: 150, iLo: 101, iHi: 200 },
+  { cLo: 151, cHi: 250, iLo: 201, iHi: 300 },
+  { cLo: 251, cHi: 350, iLo: 301, iHi: 400 },
+  { cLo: 351, cHi: 1023, iLo: 401, iHi: 500 }
+];
+
+const GAS_BREAKPOINTS = [
+  { cLo: 0,   cHi: 200, iLo: 0,   iHi: 50 },
+  { cLo: 201, cHi: 400, iLo: 51,  iHi: 100 },
+  { cLo: 401, cHi: 600, iLo: 101, iHi: 200 },
+  { cLo: 601, cHi: 800, iLo: 201, iHi: 300 },
+  { cLo: 801, cHi: 1023, iLo: 301, iHi: 500 }
+];
+
 const calculateAQI = (gas, dust) => {
-  const avg = (gas + dust) / 2;
-  if (avg < 1000) return 50;
-  if (avg < 2000) return 100;
-  if (avg < 3000) return 200;
-  return 300;
+  // 1. Calculate individual indices (sub-indices)
+  const gasIndex  = getInterpolatedAQI(gas, GAS_BREAKPOINTS);
+  const dustIndex = getInterpolatedAQI(dust, DUST_BREAKPOINTS);
+  
+  // 2. Final AQI is the maximum of the sub-indices
+  return Math.max(gasIndex, dustIndex);
 };
 
 const getLevelFromAQI = (aqi) => {
@@ -32,6 +61,7 @@ const LEVEL_META = {
 // ── Component ─────────────────────────────────────────────────
 function App() {
   const [sensor, setSensor] = useState({ gas: 0, dust: 0, temperature: 0, humidity: 0, aqi: 0, level: "Good" });
+  const [historyData, setHistoryData]           = useState([]);
   const [savedPrecautions, setSavedPrecautions] = useState([]);
   const [aiPrecautions, setAiPrecautions]       = useState([]);
   const [aiLoading, setAiLoading]               = useState(false);
@@ -98,18 +128,33 @@ function App() {
       const data = snap.val();
       if (!data) return;
 
-      const gasVal  = data.gas         ?? 0;
-      const dustVal = data.dust        ?? 0;
-      const aqi     = calculateAQI(gasVal, dustVal);
-      const level   = getLevelFromAQI(aqi);
+      const gasVal  = Number(data.gas         ?? 0);
+      const dustVal = Number(data.dust        ?? 0);
+      const tempVal = Number(data.temperature ?? 0);
+      const humVal  = Number(data.humidity    ?? 0);
+      
+      const hardwareAqi = Number(data.aqi ?? 0);
+      const hardwareLevel = data.level || "Good";
+
+      // Use the hardware-calculated values directly
+      const aqi     = hardwareAqi;
+      const level   = hardwareLevel;
 
       const newSensor = {
         gas: gasVal, dust: dustVal,
-        temperature: data.temperature ?? 0,
-        humidity:    data.humidity    ?? 0,
+        temperature: tempVal,
+        humidity: humVal,
         aqi, level,
       };
       setSensor(newSensor);
+
+      // Accumulate real-time history for the chart
+      setHistoryData((prev) => {
+        const timeStr = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        // Always append to allow graph to scroll forward over time.
+        const newData = [...prev, { time: timeStr, AQI: aqi, Gas: gasVal, Dust: dustVal }];
+        return newData.length > 20 ? newData.slice(newData.length - 20) : newData; // keep last 20 elements
+      });
 
       setSavedPrecautions(
         data.precautions ? Object.values(data.precautions) : []
@@ -124,8 +169,17 @@ function App() {
     return () => unsub();
   }, [fetchAI]);
 
+  // ── Buzzer Control Sync ──
+  useEffect(() => {
+    if (!sensor.level) return;
+    const buzzerRef = ref(database, "airQuality/current/buzzer");
+    // Activate buzzer for Poor or Severe air quality
+    const isBuzzerNeeded = (sensor.level === "Poor" || sensor.level === "Severe");
+    set(buzzerRef, isBuzzerNeeded ? 1 : 0).catch(err => console.error("Firebase Buzzer Update Error:", err));
+  }, [sensor.level]);
+
   const meta       = LEVEL_META[sensor.level] || LEVEL_META.Good;
-  const aqiPercent = Math.min((sensor.aqi / 300) * 100, 100);
+  const aqiPercent = Math.min((sensor.aqi / 500) * 100, 100);
 
   const metrics = [
     { label: "Gas",         value: sensor.gas,         unit: "ADC", icon: "🌫️" },
@@ -193,6 +247,58 @@ function App() {
           <span style={{ color: "#f59e0b" }}>Moderate</span>
           <span style={{ color: "#ef4444" }}>Poor</span>
           <span style={{ color: "#dc2626" }}>Severe</span>
+        </div>
+      </section>
+
+      {/* ── Historical Data Chart ── */}
+      <section className="chart-section panel">
+        <div className="panel-header">
+          <div className="panel-title-group">
+            <span className="panel-icon-circle">📈</span>
+            <div>
+              <h2 className="panel-title">Real-time Trends</h2>
+              <p className="panel-subtitle">Gas, Dust, and AQI fluctuations over the last 20 updates</p>
+            </div>
+          </div>
+        </div>
+        <div className="panel-body chart-body">
+          {historyData.length > 1 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={historyData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorAqi" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={meta.color} stopOpacity={0.8} />
+                    <stop offset="95%" stopColor={meta.color} stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="colorGas" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.5} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="colorDust" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#a855f7" stopOpacity={0.5} />
+                    <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="time" stroke="#6b7280" fontSize={11} tickMargin={10} minTickGap={20} />
+                <YAxis yAxisId="left" stroke="#6b7280" fontSize={11} domain={[0, 'auto']} />
+                <YAxis yAxisId="right" orientation="right" stroke="#6b7280" fontSize={11} domain={[0, 'auto']} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: "rgba(15,15,15,0.9)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", backdropFilter: "blur(10px)" }}
+                  itemStyle={{ fontSize: "14px", fontWeight: "600" }}
+                  labelStyle={{ color: "#9ca3af", marginBottom: "4px" }}
+                />
+                <Area yAxisId="right" type="monotone" dataKey="Gas" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorGas)" />
+                <Area yAxisId="right" type="monotone" dataKey="Dust" stroke="#a855f7" strokeWidth={2} fillOpacity={1} fill="url(#colorDust)" />
+                <Area yAxisId="left" type="monotone" dataKey="AQI" stroke={meta.color} strokeWidth={3} fillOpacity={1} fill="url(#colorAqi)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="empty-state">
+              <span className="spin">🔄</span>
+              <p>Accumulating real-time sensor data...</p>
+            </div>
+          )}
         </div>
       </section>
 
