@@ -3,35 +3,49 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY;
 
-// Fallback precautions based on AQI Level
+// Fallback precautions based on AQI Level (6-Tier Standard)
 const FALLBACK_PRECAUTIONS = {
-  Good: [
+  "Good": [
     "Air quality is ideal for outdoor activities.",
     "Open windows to ventilate your home.",
     "Great time for a walk or exercise outside.",
     "No health risks for sensitive groups.",
     "Enjoy the fresh air without any restrictions."
   ],
-  Moderate: [
+  "Moderate": [
     "Unusually sensitive individuals should limit prolonged outdoor exertion.",
     "Consider reducing intense outdoor activities if you experience symptoms.",
     "Keep windows closed during peak traffic hours.",
     "Air purifiers can be used on low settings indoors.",
     "Monitor yourself for respiratory issues."
   ],
-  Poor: [
+  "Unhealthy for Sensitive Groups": [
+    "Sensitive groups should avoid heavy outdoor exertion.",
+    "Keep children and elderly indoors if possible.",
+    "Use air purifiers in bedrooms.",
+    "Reduce outdoor playtime for kids.",
+    "Monitor for symptoms like coughing or shortness of breath."
+  ],
+  "Unhealthy": [
     "Everyone should reduce prolonged or heavy outdoor exertion.",
-    "Sensitive groups should avoid outdoor activities completely.",
-    "Keep all windows closed to prevent polluted air from entering.",
+    "Sensitive groups should stay indoors completely.",
+    "Keep all windows closed tightly.",
     "Run indoor air purifiers at a medium-high setting.",
     "Consider wearing an N95 mask if you must go outside."
   ],
-  Severe: [
-    "Stay indoors and avoid all outdoor physical activities.",
+  "Very Unhealthy": [
+    "Everyone should stay indoors and avoid all physical activity.",
     "Ensure all doors and windows are strictly sealed.",
     "Use air purifiers constantly on their highest setting.",
-    "Wear a high-quality N95 or KN95 mask if you must briefly go outside.",
-    "Seek medical attention if you experience shortness of breath."
+    "Wear a high-quality N95 or KN95 mask if you must go outside.",
+    "Significant health risk for everyone; avoid the outdoors."
+  ],
+  "Hazardous": [
+    "EMERGENCY: Everyone stay indoors and avoid physical effort.",
+    "Seal windows and doors with damp towels if necessary.",
+    "Highest level air filtration is mandatory.",
+    "Wear an N95 mask for any movement outside.",
+    "Seek medical attention if you experience breathing difficulty."
   ]
 };
 

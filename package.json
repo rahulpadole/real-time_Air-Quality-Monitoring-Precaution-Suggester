@@ -12,6 +12,8 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "firebase": "^12.8.0",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^1.8.0",
     "openai": "^6.34.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
