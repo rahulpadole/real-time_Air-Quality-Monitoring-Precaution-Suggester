@@ -226,8 +226,38 @@ body::before {
   box-shadow: var(--shadow-lux);
 }
 
-.chart-header { margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
+.chart-header { margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+.chart-title-group { display: flex; align-items: center; gap: 12px; }
 .chart-title  { font-size: 18px; font-weight: 700; color: #fff; }
+
+.live-pill {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(16, 185, 129, 0.1); padding: 4px 10px; border-radius: 100px;
+  font-size: 10px; font-weight: 800; color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2);
+}
+.live-pill-dot { width: 4px; height: 4px; background: #10b981; border-radius: 50%; animation: livePing 1.5s infinite; }
+
+.trend-tabs {
+  display: flex; gap: 8px;
+  background: rgba(255, 255, 255, 0.03); 
+  padding: 4px; border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.trend-tab {
+  background: transparent; border: none;
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px; font-weight: 600; color: var(--text-sec);
+  padding: 6px 14px; border-radius: 8px;
+  cursor: pointer; transition: all 0.3s;
+}
+
+.trend-tab:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+.trend-tab.active {
+  background: var(--bg-elevated);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3), 0 0 0 1px var(--border-light);
+}
 
 /* ── Side Panels ─────────────────────────────────── */
 .side-panels { display: flex; flex-direction: column; gap: var(--gap); }

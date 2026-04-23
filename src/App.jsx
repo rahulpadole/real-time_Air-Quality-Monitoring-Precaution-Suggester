@@ -118,8 +118,7 @@ function App() {
   const [aiPrecautions, setAiPrecautions] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
-  const [lastAiTime, setLastAiTime] = useState(null);
-  const [apiKeyMissing, setApiKeyMissing] = useState(false);
+  const [activeTrend, setActiveTrend] = useState("AQI");
   const [clock, setClock] = useState(new Date());
   const [cooldown, setCooldown] = useState(0);
   const cooldownRef = useRef(null);
@@ -164,8 +163,16 @@ function App() {
       setHistoryData(prev => {
         const now = Date.now();
         const time = new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        // Add new point with a timestamp for accurate 1-hour filtering
-        const updated = [...prev, { timestamp: now, time, AQI: aqi, Gas: gas, Dust: dust }];
+        // Add new point with all metrics for trending
+        const updated = [...prev, { 
+          timestamp: now, 
+          time, 
+          AQI: aqi, 
+          Gas: gas, 
+          Dust: dust,
+          Temp: data.temp ?? 0,
+          Humidity: data.humidity ?? 0
+        }];
         // Filter out anything older than 1 hour (3600000 ms)
         return updated.filter(point => now - point.timestamp <= 3600000);
       });
@@ -248,50 +255,68 @@ function App() {
 
         <section className="chart-card">
           <header className="chart-header">
-            <h2 className="chart-title">Dynamic Trends</h2>
-            <Clock size={18} color="var(--text-muted)" />
+            <div className="chart-title-group">
+              <h2 className="chart-title">Dynamic Trends</h2>
+              <div className="live-pill">
+                <div className="live-pill-dot" />
+                <span>LIVE</span>
+              </div>
+            </div>
+            <div className="trend-tabs">
+              {["AQI", "Gas", "Dust", "Temp", "Humidity"].map((tab) => (
+                <button 
+                  key={tab} 
+                  className={`trend-tab ${activeTrend === tab ? 'active' : ''}`}
+                  onClick={() => setActiveTrend(tab)}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
           </header>
           
-          <div style={{ width: '100%', height: '280px', paddingTop: '20px' }}>
+          <div style={{ width: '100%', height: '300px', paddingTop: '10px' }}>
             {historyData.length > 2 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={historyData}>
                   <defs>
-                    <linearGradient id="colorAqi" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={meta.color} stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor={meta.color} stopOpacity={0}/>
+                    <linearGradient id="colorTrend" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={activeTrend === "AQI" ? meta.color : "#38bdf8"} stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor={activeTrend === "AQI" ? meta.color : "#38bdf8"} stopOpacity={0}/>
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
                   <XAxis 
                     dataKey="time" 
                     stroke="#64748b" 
-                    fontSize={11} 
+                    fontSize={10} 
                     tickMargin={12}
-                    minTickGap={60}
+                    minTickGap={30}
                     axisLine={false}
                     tickLine={false}
+                    interval="preserveStartEnd"
                   />
                   <YAxis 
                     stroke="#64748b" 
                     fontSize={11} 
-                    domain={[0, 500]} 
+                    domain={['auto', 'auto']} 
                     tickCount={6}
                     axisLine={false}
                     tickLine={false}
                   />
                   <Tooltip 
                     contentStyle={{ background: '#0a0f1d', border: '1px solid var(--border)', borderRadius: '12px', backdropFilter: 'blur(10px)' }}
-                    itemStyle={{ color: meta.color, fontSize: '13px', fontWeight: '600' }}
+                    itemStyle={{ color: activeTrend === "AQI" ? meta.color : "#38bdf8", fontSize: '13px', fontWeight: '600' }}
                   />
                   <Area 
                     type="monotone" 
-                    dataKey="AQI" 
-                    stroke={meta.color} 
+                    dataKey={activeTrend} 
+                    stroke={activeTrend === "AQI" ? meta.color : "#38bdf8"} 
                     strokeWidth={3} 
                     fillOpacity={1} 
-                    fill="url(#colorAqi)"
-                    isAnimationActive={false} // Disable animation to debug rendering
+                    fill="url(#colorTrend)"
+                    isAnimationActive={true}
+                    animationDuration={1000}
                   />
                 </AreaChart>
               </ResponsiveContainer>
