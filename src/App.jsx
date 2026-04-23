@@ -2,7 +2,6 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { ref, onValue, set } from "firebase/database";
 import { database } from "./firebase";
 import { getAIPrecautions } from "./geminiService";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Wind, Droplets, Thermometer, Activity, Zap, 
@@ -114,11 +113,11 @@ const SemiCircleGauge = ({ value, color }) => {
 
 function App() {
   const [sensor, setSensor] = useState({ gas: 0, dust: 0, temperature: 0, humidity: 0, aqi: 0, level: "Good" });
-  const [historyData, setHistoryData] = useState([]);
   const [aiPrecautions, setAiPrecautions] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
-  const [activeTrend, setActiveTrend] = useState("AQI");
+  const [lastAiTime, setLastAiTime] = useState(null);
+  const [apiKeyMissing, setApiKeyMissing] = useState(false);
   const [clock, setClock] = useState(new Date());
   const [cooldown, setCooldown] = useState(0);
   const cooldownRef = useRef(null);
@@ -155,27 +154,13 @@ function App() {
       if (!data) return;
       const gas = Number(data.gas ?? 0);
       const dust = Number((Number(data.dust ?? 0) / 10).toFixed(1));
+      const temp = Number(data.temp ?? 0);
+      const humidity = Number(data.humidity ?? 0);
       const aqi = calculateAQI(gas, dust);
       const level = getLevelFromAQI(aqi);
-      const newSensor = { gas, dust, temperature: data.temp ?? 0, humidity: data.humidity ?? 0, aqi, level };
+      const newSensor = { gas, dust, temperature: temp, humidity: humidity, aqi, level };
       
       setSensor(newSensor);
-      setHistoryData(prev => {
-        const now = Date.now();
-        const time = new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        // Add new point with all metrics for trending
-        const updated = [...prev, { 
-          timestamp: now, 
-          time, 
-          AQI: aqi, 
-          Gas: gas, 
-          Dust: dust,
-          Temp: data.temp ?? 0,
-          Humidity: data.humidity ?? 0
-        }];
-        // Filter out anything older than 1 hour (3600000 ms)
-        return updated.filter(point => now - point.timestamp <= 3600000);
-      });
 
       if (prevLevelRef.current !== level) {
         prevLevelRef.current = level;
@@ -183,10 +168,9 @@ function App() {
       }
     });
 
-    // Buzzer control
     const buzzerRef = ref(database, "air/buzzer");
     const isBuzzer = ["Unhealthy", "Very Unhealthy", "Hazardous"].includes(sensor.level);
-    set(buzzerRef, isBuzzer ? 1 : 0);
+    set(buzzerRef, isBuzzer ? 1 : 0).catch(err => console.warn("Buzzer control locked:", err.message));
 
     return () => unsub();
   }, [fetchAI, sensor.level]);
@@ -206,8 +190,8 @@ function App() {
         <div className="header-brand">
           <div className="brand-pulse"><Wind color="#fff" size={28} /></div>
           <div>
-            <h1 className="brand-title">AIRSENSE ELITE</h1>
-            <p className="brand-sub">PRECISION MONITORING</p>
+            <h1 className="brand-title">AIR QUALITY MONITORING</h1>
+            <p className="brand-sub">& PRECISION SUGGESTER</p>
           </div>
         </div>
         <div className="header-right">
@@ -238,7 +222,7 @@ function App() {
         ))}
       </section>
 
-      <main className="main-grid">
+      <main className="main-grid" style={{ gridTemplateColumns: '1fr' }}>
         <section className="aqi-hero">
           <div className="hero-header">
             <div className="status-badge" style={{ backgroundColor: meta.bg, borderColor: meta.color }}>
@@ -251,82 +235,6 @@ function App() {
             <MapPin size={24} color="var(--text-muted)" />
           </div>
           <SemiCircleGauge value={sensor.aqi} color={meta.color} />
-        </section>
-
-        <section className="chart-card">
-          <header className="chart-header">
-            <div className="chart-title-group">
-              <h2 className="chart-title">Dynamic Trends</h2>
-              <div className="live-pill">
-                <div className="live-pill-dot" />
-                <span>LIVE</span>
-              </div>
-            </div>
-            <div className="trend-tabs">
-              {["AQI", "Gas", "Dust", "Temp", "Humidity"].map((tab) => (
-                <button 
-                  key={tab} 
-                  className={`trend-tab ${activeTrend === tab ? 'active' : ''}`}
-                  onClick={() => setActiveTrend(tab)}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-          </header>
-          
-          <div style={{ width: '100%', height: '300px', paddingTop: '10px' }}>
-            {historyData.length > 2 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={historyData}>
-                  <defs>
-                    <linearGradient id="colorTrend" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={activeTrend === "AQI" ? meta.color : "#38bdf8"} stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor={activeTrend === "AQI" ? meta.color : "#38bdf8"} stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-                  <XAxis 
-                    dataKey="time" 
-                    stroke="#64748b" 
-                    fontSize={10} 
-                    tickMargin={12}
-                    minTickGap={30}
-                    axisLine={false}
-                    tickLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis 
-                    stroke="#64748b" 
-                    fontSize={11} 
-                    domain={['auto', 'auto']} 
-                    tickCount={6}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip 
-                    contentStyle={{ background: '#0a0f1d', border: '1px solid var(--border)', borderRadius: '12px', backdropFilter: 'blur(10px)' }}
-                    itemStyle={{ color: activeTrend === "AQI" ? meta.color : "#38bdf8", fontSize: '13px', fontWeight: '600' }}
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey={activeTrend} 
-                    stroke={activeTrend === "AQI" ? meta.color : "#38bdf8"} 
-                    strokeWidth={3} 
-                    fillOpacity={1} 
-                    fill="url(#colorTrend)"
-                    isAnimationActive={true}
-                    animationDuration={1000}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', gap: '12px' }}>
-                <RefreshCw size={24} className="spin" />
-                <p style={{ fontSize: '14px' }}>Collecting trend data...</p>
-              </div>
-            )}
-          </div>
         </section>
       </main>
 

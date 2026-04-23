@@ -57,8 +57,8 @@ export async function getAIPrecautions({ gas, dust, temperature, humidity, aqi, 
 
   try {
     const genAI = new GoogleGenerativeAI(API_KEY);
-    // Try the standard flash model
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Try the latest flash model
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
     const prompt = `Based on the following real-time sensor data, give exactly 5 specific, actionable health precautions:
 
